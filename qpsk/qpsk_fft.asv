@@ -10,13 +10,13 @@ v_kmh = 0; fc = 700e6;
 v = v_kmh / 3.6;
 lambda = 3e8 / fc;
 fd_max = v / lambda;
-num_runs = 1;
+num_runs = 21;
 
 % Pilotos
 pilot_symbol = 1 + 1j;
 pilot_interval = 5; 
 
-mapping = [1+1j; 1-1j; -1-1j; -1+1j]/sqrt(2);
+mapping = [1+1j; -1+1j; -1-1j; 1-1j] / sqrt(2);
 bit_map = [0 0; 0 1; 1 1; 1 0];
 
 ber_total = zeros(1, length(EbN0_dB));
@@ -107,7 +107,7 @@ end
 
 % Resultados
 ber_avg = ber_total / (num_runs * num_bits);
-%disp(ber_avg)
+% disp(ber_avg)
 
 % Teórica Rayleigh
 EbN0_lin = 10.^(EbN0_dB/10);
@@ -121,9 +121,3 @@ grid on;
 legend('Teórica Rayleigh', ['Sim. con piloto cada ', num2str(pilot_interval+1), ' símbolos']);
 xlabel('E_b/N_0 [dB]'); ylabel('BER');
 title('BER para QPSK con estimación de canal por pilotos');
-
-%disp(['Longitud esperada de symbols: ', num2str(num_symbols)]);
-%disp(['Cantidad de símbolos insertados en tx_frame: ', num2str(sum(~is_pilot))]);
-
-%disp(['Símbolos QPSK transmitidos: ', num2str(num_symbols)]);
-%disp(['Símbolos recibidos después de ecualización: ', num2str(length(y_data))]);
