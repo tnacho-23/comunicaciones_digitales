@@ -1,7 +1,7 @@
 clc; clear all; close all;
 
 % Parámetros
-num_bits = 100000;
+num_bits = 10000;
 k = 2; % bits por símbolo para QPSK
 num_symbols = num_bits / k;
 EbN0_dB = -2:1:30;
