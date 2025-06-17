@@ -14,15 +14,16 @@ EsN0dB = EbN0dB + 10*log10(nDSC/nFFT) + 10*log10(64/80);
 % Canal móvil
 fc = 2.4e9;              
 lambda = 3e8/fc;         
-v = (1)/3.6;             % Velocidad móvil (m/s)
+v = (10)/3.6;             % Velocidad móvil (m/s)
 fmax = v/lambda;         
 nTap = 10;               
-N = 1;                   % Número de paths
+N = 5;                   % Número de paths
 
 % Prealocación
 simBer = zeros(1, length(SNRdB));
 theoryBerAWGN = 0.5*erfc(sqrt(10.^(EbN0dB/10)));
 theoryBerRayleigh = 0.5*(1 - sqrt(10.^(EbN0dB/10) ./ (10.^(EbN0dB/10) + 1)));
+
 
 for ii = 1:length(SNRdB)
     % Transmisor
@@ -57,6 +58,7 @@ for ii = 1:length(SNRdB)
         yt_awgn = yt_awgn(:,17:80);
         yF_awgn = (sqrt(nDSC)/nFFT)*fftshift(fft(yt_awgn.')).';
         yMod_awgn = yF_awgn(:, [7:32, 34:59]);
+
 
         figure;
         idx = randperm(numel(yMod_awgn), 1000);
