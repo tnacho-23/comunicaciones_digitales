@@ -6,7 +6,7 @@ k = 2; % bits por símbolo para QPSK
 num_symbols = num_bits / k;
 EbN0_dB = -2:1:30;
 L = 5; % número de trayectorias
-v_kmh = 50; fc = 700e6;
+v_kmh = 120; fc = 700e6;
 v = v_kmh / 3.6;
 lambda = 3e8 / fc;
 fd_max = v / lambda;
@@ -67,7 +67,7 @@ ber_rayleigh_theory = 0.5*(1 - sqrt(EbN0_lin./(EbN0_lin+1)));
 % Gráfica BER
 figure;
 semilogy(EbN0_dB, ber_rayleigh_theory, 'b-', 'LineWidth', 2); hold on;
-semilogy(EbN0_dB, ber_avg, 'ro-', 'LineWidth', 2);
+semilogy(EbN0_dB, ber_avg, 'r*-', 'LineWidth', 2);
 grid on;
 legend('Teórica Rayleigh', 'Sim. Multipath + AWGN (CSI perfecto)');
 xlabel('E_b/N_0 [dB]'); ylabel('BER');
