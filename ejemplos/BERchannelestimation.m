@@ -2,7 +2,7 @@
 clc;
 clear all;
 
-snrr = 0:1:40;
+snrr = -2:1:30;
 nb = 1593; % number of symbols
 N = 10;
 pilot = 1 + 1i; % pilot symbol
