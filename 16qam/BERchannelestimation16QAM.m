@@ -7,6 +7,10 @@ nb = 1593; % number of symbols
 N = 10;
 pilot = 1 + 1i; % pilot symbol
 
+% Parámetros para canal de Rayleigh
+v = 30;         % velocidad en m/s (ajustable)
+fc = 3.5e9;     % frecuencia portadora en Hz (ejemplo 2.4 GHz)
+
 % 16-QAM constellation
 inphase = [0.9 0.9 0.9 0.9 0.3 0.3 0.3 0.3];
 quadr = [-0.9 -0.3 0.3 0.9 -0.9 -0.3 0.3 0.9];
@@ -22,8 +26,8 @@ tx = genqammod(b, const);
 txp = addpilot(tx, nb, pilot, N);
 len = length(txp);
 
-% Rayleigh fading channel
-ct = rayleighfading(len);
+% Rayleigh fading channel con velocidad explícita
+ct = rayleighfading(len, v, fc);
 twn = txp .* ct; % apply channel
 
 % Add noise
@@ -151,16 +155,21 @@ function [ch, chp] = extpltcoef(ct, N, nb)
     ch = ch(1:nb); % ajustar longitud
 end
 
-function [c] = rayleighfading(m)
-    N = 32; % número de trayectorias
-    fmax = 100; % frecuencia Doppler máxima
+function [c] = rayleighfading(m, v, fc)
+    c_light = 3e8; % velocidad de la luz en m/s
+    N = 5; % número de trayectorias
     A = 1; % amplitud
-    f = 10000; % frecuencia de muestreo
+    f = 10000; % frecuencia de muestreo (Hz)
+
+    % Calcula la frecuencia Doppler máxima según velocidad y frecuencia portadora
+    fmax = (v / c_light) * fc;
+
     t = 0:1/f:(m/f - 1/f); % tiempo de muestreo
     ct = zeros(1, m);
     ph = 2 * pi * rand(1, N);
     theta = 2 * pi * rand(1, N);
     fd = fmax * cos(theta); % desplazamientos Doppler
+
     for n = 1:m
         for i = 1:N
             ct(n) = ct(n) + A * exp(1j * (2 * pi * fd(i) * t(n) + ph(i)));
