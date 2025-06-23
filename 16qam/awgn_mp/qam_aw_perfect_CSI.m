@@ -2,12 +2,19 @@ clc; clear all; close all;
 
 % Parámetros fijos
 num_bits = 1e3;
-k = 2;
+k = 4; % 16QAM usa 4 bits por símbolo
 num_symbols = num_bits / k;
 EbN0_dB = -2:2:30;
 num_runs = 10;
-mapping = [1+1j; 1-1j; -1+1j; -1-1j] / sqrt(2);
-bit_map = [0 0; 0 1; 1 0; 1 1];
+
+% Constelación 16QAM (normalizada a potencia unitaria)
+re_vals = [-3, -1, 1, 3];
+im_vals = [-3, -1, 1, 3];
+[re_grid, im_grid] = meshgrid(re_vals, im_vals);
+mapping = (re_grid(:) + 1j*im_grid(:)) / sqrt(10);
+
+% Bit map (cada fila representa los bits que corresponden a cada símbolo)
+bit_map = de2bi(0:15, 4, 'left-msb');
 
 % Valores de SNR para los que se graficarán constelaciones
 snr_plot_vals = [-2, 0, 10, 30];
@@ -46,8 +53,8 @@ for iL = 1:length(L_vals)
 
                 for run = 1:num_runs
                     bits = randi([0 1], 1, num_bits);
-                    bit_pairs = reshape(bits, 2, []).';
-                    indices = bit_pairs(:,1)*2 + bit_pairs(:,2) + 1;
+                    bit_quads = reshape(bits, 4, []).';
+                    indices = bi2de(bit_quads, 'left-msb') + 1;
                     symbols = mapping(indices).';
 
                     % Canal y ruido
@@ -69,7 +76,7 @@ for iL = 1:length(L_vals)
                     for n = 1:num_symbols
                         distances = abs(y_eq(n) - mapping).^2;
                         [~, idx_min] = min(distances);
-                        decoded_bits(2*n-1:2*n) = bit_map(idx_min,:).';
+                        decoded_bits(4*n-3:4*n) = bit_map(idx_min,:).';
                     end
                     ber_total(idx) = ber_total(idx) + sum(decoded_bits.' ~= bits);
 
@@ -102,17 +109,22 @@ for iL = 1:length(L_vals)
     end
 end
 
-% Teórica Rayleigh
+% Teórica Rayleigh (aproximación para 16QAM)
+M = 16;
+k = log2(M);
 EbN0_lin = 10.^(EbN0_dB/10);
-ber_rayleigh_theory = 0.5*(1 - sqrt(EbN0_lin./(EbN0_lin+1)));
-semilogy(EbN0_dB, ber_rayleigh_theory, 'k--', 'LineWidth', 2);
-legend_entries{end+1} = 'Teórica Rayleigh';
+gamma = (3/(M-1)) * EbN0_lin;  % SNR promedio por símbolo
+
+Pb_16qam_rayleigh = (4/k) * (1 - 1/sqrt(M)) * 0.5 .* (1 - sqrt(gamma ./ (gamma + 1)));
+semilogy(EbN0_dB, Pb_16qam_rayleigh, 'k--', 'LineWidth', 2);
+legend_entries{end+1} = 'Teórica Rayleigh 16QAM';
+
 
 grid on;
 legend(legend_entries, 'Location', 'southwest');
 xlabel('E_b/N_0 [dB]');
 ylabel('BER');
-title('BER para QPSK en canal Multipath + AWGN');
+title('BER para 16QAM en canal Multipath + AWGN');
 
 %% Figura de constelaciones para múltiples SNR
 figure;
@@ -150,4 +162,4 @@ for i = 1:length(snrs)
     end
 end
 
-sgtitle('Constelaciones para SNR = -5, 0, 10, 30 dB (L=5, v=30km/h, fc=700MHz)');
+sgtitle('Constelaciones para SNR = -2, 0, 10, 30 dB (L=5, v=30km/h, fc=700MHz)');
