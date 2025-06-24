@@ -17,8 +17,9 @@ fc_vals = [700e6, 3.5e9];
 colors = lines(length(v_kmh_vals)*length(fc_vals));
 plot_idx = 1;
 legend_entries = {};
+constellation_plotted = false;
 
-figure;
+figure(1); % Figura para BER
 
 for iv = 1:length(v_kmh_vals)
     for ifc = 1:length(fc_vals)
@@ -48,6 +49,33 @@ for iv = 1:length(v_kmh_vals)
                 y = symbols .* H + noise;
                 y_eq = y ./ H;
 
+                % Graficar constelaciones (una sola vez)
+                if ~constellation_plotted && iv == 1 && ifc == 1 && run == 1 && idx == length(EbN0_dB)
+                    figure(2); % Figura para constelaciones
+                    sgtitle(sprintf('Constelaciones'));
+
+                    subplot(1,3,1);
+                    plot(real(symbols), imag(symbols), 'o');
+                    axis equal; grid on;
+                    title('Transmitido (ideal)');
+                    xlabel('Re'); ylabel('Im');
+
+                    subplot(1,3,2);
+                    plot(real(y), imag(y), 'x');
+                    axis equal; grid on;
+                    title('Recibido sin ecualizar');
+                    xlabel('Re'); ylabel('Im');
+
+                    subplot(1,3,3);
+                    plot(real(y_eq), imag(y_eq), '+');
+                    axis equal; grid on;
+                    title('Recibido tras ecualizar');
+                    xlabel('Re'); ylabel('Im');
+
+                    constellation_plotted = true;
+                end
+
+                % Decodificación
                 decoded_bits = zeros(num_bits,1);
                 for n = 1:num_symbols
                     distances = abs(y_eq(n) - mapping).^2;
@@ -60,7 +88,8 @@ for iv = 1:length(v_kmh_vals)
 
         ber_avg = ber_total / (num_runs * num_bits);
 
-        % Graficar
+        % Graficar BER
+        figure(1);
         semilogy(EbN0_dB, ber_avg, '-', 'LineWidth', 1.8, ...
                  'Color', colors(plot_idx,:)); hold on;
 
@@ -73,6 +102,7 @@ end
 % BER teórica para canal Rayleigh plano
 EbN0_lin = 10.^(EbN0_dB/10);
 ber_rayleigh_theory = 0.5*(1 - sqrt(EbN0_lin./(EbN0_lin+1)));
+figure(1);
 semilogy(EbN0_dB, ber_rayleigh_theory, 'k--', 'LineWidth', 2);
 legend_entries{end+1} = 'Teórica Rayleigh';
 

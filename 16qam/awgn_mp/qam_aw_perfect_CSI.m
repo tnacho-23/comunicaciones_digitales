@@ -1,11 +1,11 @@
 clc; clear all; close all;
 
 % Parámetros fijos
-num_bits = 1e3;
+num_bits = 1e4;
 k = 4; % 16QAM usa 4 bits por símbolo
 num_symbols = num_bits / k;
 EbN0_dB = -2:2:30;
-num_runs = 10;
+num_runs = 21;
 
 % Constelación 16QAM (normalizada a potencia unitaria)
 re_vals = [-3, -1, 1, 3];
