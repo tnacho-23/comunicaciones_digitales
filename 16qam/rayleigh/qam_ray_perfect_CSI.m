@@ -2,14 +2,20 @@ clc; clear all; close all;
 
 % Parámetros fijos
 num_bits = 1e4;
-k = 2;
+k = 4; % 16-QAM: 4 bits por símbolo
 num_symbols = num_bits / k;
 EbN0_dB = -2:2:30;
 num_runs = 10;
-mapping = [1+1j; 1-1j; -1+1j; -1-1j] / sqrt(2);
-bit_map = [0 0; 0 1; 1 0; 1 1];
 
-% Parámetros variables
+% Constelación 16-QAM (normalizada a energía unitaria)
+re = [-3 -1 3 1]; im = [-3 -1 3 1]; % Orden Gray
+[X,Y] = meshgrid(re, im);
+mapping = (X(:) + 1j*Y(:)) / sqrt(10); % Energía promedio = 10, normalizamos
+
+% Bit mapping (orden Gray)
+bit_map = de2bi([0:15], 4, 'left-msb');
+
+% Frecuencias portadoras
 fc_vals = [700e6, 3.5e9];
 
 % Para graficar
@@ -21,9 +27,7 @@ constellation_plotted = false;
 figure(1); % Figura para BER
 
 for ifc = 1:length(fc_vals)
-
     fc = fc_vals(ifc);
-
     ber_total = zeros(1, length(EbN0_dB));
 
     for idx = 1:length(EbN0_dB)
@@ -32,9 +36,9 @@ for ifc = 1:length(fc_vals)
 
         for run = 1:num_runs
             bits = randi([0 1], 1, num_bits);
-            bit_pairs = reshape(bits, 2, []).';
-            indices = bit_pairs(:,1)*2 + bit_pairs(:,2) + 1;
-            symbols = mapping(indices).';
+            bit_groups = reshape(bits, k, []).';
+            decimal_indices = bi2de(bit_groups, 'left-msb') + 1;
+            symbols = mapping(decimal_indices).';
 
             % Canal plano Rayleigh
             H = (randn(1,num_symbols) + 1j*randn(1,num_symbols))/sqrt(2);
@@ -46,7 +50,7 @@ for ifc = 1:length(fc_vals)
             % Graficar constelaciones (una sola vez)
             if ~constellation_plotted && ifc == 1 && run == 1 && idx == length(EbN0_dB)
                 figure(2); % Figura para constelaciones
-                sgtitle(sprintf('Constelaciones'));
+                sgtitle(sprintf('Constelaciones 16-QAM'));
 
                 subplot(1,3,1);
                 plot(real(symbols), imag(symbols), 'o');
@@ -74,7 +78,7 @@ for ifc = 1:length(fc_vals)
             for n = 1:num_symbols
                 distances = abs(y_eq(n) - mapping).^2;
                 [~, idx_min] = min(distances);
-                decoded_bits(2*n-1:2*n) = bit_map(idx_min,:).';
+                decoded_bits((n-1)*k+1:n*k) = bit_map(idx_min,:).';
             end
             ber_total(idx) = ber_total(idx) + sum(decoded_bits.' ~= bits);
         end
@@ -91,15 +95,17 @@ for ifc = 1:length(fc_vals)
     plot_idx = plot_idx + 1;
 end
 
-% BER teórica para canal Rayleigh plano
+% Agregar BER teórica para Rayleigh con 16-QAM (aproximada)
 EbN0_lin = 10.^(EbN0_dB/10);
-ber_rayleigh_theory = 0.5*(1 - sqrt(EbN0_lin./(EbN0_lin+1)));
+M = 16;
+ber_rayleigh_theory = (3/(2*k))*(1 - 1/sqrt(M)) .* ...
+                      (1 - sqrt(EbN0_lin./(EbN0_lin + (M-1))));
 figure(1);
 semilogy(EbN0_dB, ber_rayleigh_theory, 'k--', 'LineWidth', 2);
-legend_entries{end+1} = 'Teórica Rayleigh';
+legend_entries{end+1} = 'Teórica Rayleigh (aprox)';
 
 grid on;
 legend(legend_entries, 'Location', 'southwest');
 xlabel('E_b/N_0 [dB]');
 ylabel('BER');
-title('BER para QPSK en canal plano Rayleigh + AWGN (CSI perfecto)');
+title('BER para 16-QAM en canal plano Rayleigh + AWGN (CSI perfecto)');

@@ -8,10 +8,10 @@ EbN0_dB = -2:2:30;
 num_runs = 5;
 mapping = [1+1j; 1-1j; -1+1j; -1-1j] / sqrt(2);
 bit_map = [0 0; 0 1; 1 0; 1 1];
-snr_plot_vals = [-2, 0, 10, 30]; % SNRs para los que se grafican constelaciones
+snr_plot_vals = [-2, 0, 10, 30];
 L_vals = [5, 40];
-v_kmh_vals = [30, 120];
-fc_vals = [700e6, 3.5e9];
+v_kmh_vals = [0];       % Eliminado el efecto de la velocidad
+fc_vals = [2.4e9];      % Frecuencia arbitraria (ya no influye)
 
 % Pilotos a probar
 N_vals = [1, 4, 9, 19];
@@ -34,10 +34,6 @@ for iN = 1:length(N_vals)
                 L = L_vals(iL);
                 v_kmh = v_kmh_vals(iv);
                 fc = fc_vals(ifc);
-
-                v = v_kmh / 3.6;
-                lambda = 3e8 / fc;
-                fd_max = v / lambda;
 
                 ber_total = zeros(1, length(EbN0_dB));
 
@@ -76,15 +72,8 @@ for iN = 1:length(N_vals)
 
                         len = length(tx_symbols);
 
-                        % Canal Rayleigh y ruido
-                        t = linspace(0, 1, len);
-                        an = ones(1,L)/sqrt(L);
-                        thetan = 2*pi*rand(1,L);
-                        fDn = fd_max * cos(2*pi*rand(1,L));
-                        H_full = zeros(1,len);
-                        for l = 1:L
-                            H_full = H_full + an(l)*exp(1j*(thetan(l) - 2*pi*fDn(l)*t));
-                        end
+                        % Canal Rayleigh plano (sin efecto de v ni fc)
+                        H_full = (randn(1,len) + 1j*randn(1,len)) / sqrt(2);
                         H_full(abs(H_full) < 1e-3) = 1e-3;
 
                         noise = sqrt(N0)*(randn(1,len) + 1j*randn(1,len));
@@ -109,7 +98,7 @@ for iN = 1:length(N_vals)
                         end
                         ber_total(idx) = ber_total(idx) + sum(decoded_bits.' ~= bits);
 
-                        % Guardar constelaciones (solo primera combinación y primer run)
+                        % Guardar constelaciones
                         should_save = (run == 1) && (iL == 1) && (iv == 1) && (ifc == 1);
                         if should_save && ismember(EbN0_dB_val, snr_plot_vals)
                             if EbN0_dB_val < 0
@@ -131,13 +120,13 @@ for iN = 1:length(N_vals)
                 color = colors(mod(plot_idx-1,length(colors))+1);
                 semilogy(EbN0_dB, ber_avg, [color style], 'LineWidth', 1.8); hold on;
 
-                legend_entries{end+1} = sprintf('L=%d, v=%dkm/h, fc=%.1fGHz', L, v_kmh, fc/1e9);
+                legend_entries{end+1} = sprintf('L=%d (canal plano)', L);
                 plot_idx = plot_idx + 1;
             end
         end
     end
 
-    % Curva teórica
+    % Curva teórica Rayleigh
     EbN0_lin = 10.^(EbN0_dB/10);
     ber_rayleigh_theory = 0.5*(1 - sqrt(EbN0_lin./(EbN0_lin+1)));
     semilogy(EbN0_dB, ber_rayleigh_theory, 'k--', 'LineWidth', 2);
@@ -148,12 +137,12 @@ for iN = 1:length(N_vals)
     xlabel('E_b/N_0 [dB]');
     ylabel('BER');
 
-    title(sprintf('BER para QPSK pilotos cada %d datos (canal multipath + AWGN)', N));
+    title(sprintf('BER para QPSK pilotos cada %d datos (canal Rayleigh plano + AWGN)', N));
     
     %% Figura de constelaciones
     figure;
     snrs = snr_plot_vals;
-    titles = {'1. Original', '2. Solo AWGN', '3. Multipath + AWGN', '4. Ecualizado'};
+    titles = {'1. Original', '2. Solo AWGN', '3. Rayleigh + AWGN', '4. Ecualizado'};
 
     for i = 1:length(snrs)
         if snrs(i) < 0
