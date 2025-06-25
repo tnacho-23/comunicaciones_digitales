@@ -1,7 +1,7 @@
 clc; clear all; close all;
 
 % Parámetros fijos
-num_bits = 1e3; % Más bits para buena estadística
+num_bits = 1e5; % Más bits para buena estadística
 k = 4; % 16-QAM -> 4 bits/símbolo
 num_symbols = num_bits / k;
 EbN0_dB = -2:2:30;

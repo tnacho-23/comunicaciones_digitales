@@ -1,7 +1,7 @@
 clc; clear all; close all;
 
 % Parámetros fijos
-num_bits = 1e4;
+num_bits = 1e5;
 k = 4; % 16QAM usa 4 bits por símbolo
 num_symbols = num_bits / k;
 EbN0_dB = -2:2:30;

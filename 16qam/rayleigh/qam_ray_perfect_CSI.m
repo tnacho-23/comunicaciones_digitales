@@ -1,11 +1,11 @@
 clc; clear all; close all;
 
 % Parámetros fijos
-num_bits = 1e4;
+num_bits = 1e5;
 k = 4; % 16-QAM: 4 bits por símbolo
 num_symbols = num_bits / k;
 EbN0_dB = -2:2:30;
-num_runs = 10;
+num_runs = 21;
 
 % Constelación 16-QAM (normalizada a energía unitaria)
 re = [-3 -1 3 1]; im = [-3 -1 3 1]; % Orden Gray
