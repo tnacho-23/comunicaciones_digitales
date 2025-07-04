@@ -1,7 +1,7 @@
 clc; clear all; close all;
 
 % Parámetros fijos
-num_bits = 1e5;
+num_bits = 1e3;
 k = 2;
 num_symbols = num_bits / k;
 EbN0_dB = -2:2:30;
@@ -16,7 +16,7 @@ v_kmh_vals = [30, 120];
 fc_vals = [700e6, 3.5e9];
 
 % Configuraciones de número de símbolos piloto entre datos
-N_vals = [1, 4, 9, 19];
+N_vals = [4, 9, 19];
 pilot_sym = 1 + 1j;
 
 % Estilos de ploteo
@@ -78,7 +78,7 @@ for iN = 1:length(N_vals)
 
                         len = length(tx_symbols);
 
-                        % Canal Rayleigh
+                        % Canal Rayleigh con Doppler
                         t = linspace(0, 1, len);
                         an = ones(1,L)/sqrt(L);
                         thetan = 2*pi*rand(1,L);
@@ -92,10 +92,11 @@ for iN = 1:length(N_vals)
                         noise = sqrt(N0)*(randn(1,len) + 1j*randn(1,len));
                         y = tx_symbols .* H_full + noise;
 
-                        % Interpolación cúbica spline
+                        % Interpolación spline
                         rx_pilots = y(pilot_pos);
                         csi_est = rx_pilots / pilot_sym;
                         csi_interp_full = interp1(pilot_pos, csi_est, data_pos, 'spline');
+
                         rx_data = y(data_pos);
                         y_eq = rx_data ./ csi_interp_full;
 
@@ -108,7 +109,6 @@ for iN = 1:length(N_vals)
                         end
                         ber_total(idx) = ber_total(idx) + sum(decoded_bits.' ~= bits);
 
-                        % Guardar constelaciones
                         should_save = (run == 1) && (iL == 1) && (iv == 1) && (ifc == 1);
                         if should_save && ismember(EbN0_dB_val, snr_plot_vals)
                             if EbN0_dB_val < 0
@@ -136,6 +136,85 @@ for iN = 1:length(N_vals)
         end
     end
 
+    % ----------- CASO SIN DOPPLER -------------
+    ber_total = zeros(1, length(EbN0_dB));
+
+    for idx = 1:length(EbN0_dB)
+        EbN0_dB_val = EbN0_dB(idx);
+        EbN0 = 10^(EbN0_dB_val/10);
+        N0 = 1/(2*k*EbN0);
+
+        for run = 1:num_runs
+            bits = randi([0 1], 1, num_bits);
+            bit_pairs = reshape(bits, 2, []).';
+            indices = bit_pairs(:,1)*2 + bit_pairs(:,2) + 1;
+            data_symbols = mapping(indices).';
+
+            % Insertar pilotos
+            tx_symbols = [];
+            pilot_pos = [];
+            data_pos = [];
+            i = 1;
+            while i <= num_symbols
+                tx_symbols = [tx_symbols, pilot_sym];
+                pilot_pos = [pilot_pos, length(tx_symbols)];
+
+                if i+N-1 <= num_symbols
+                    tx_symbols = [tx_symbols, data_symbols(i:i+N-1)];
+                    data_pos = [data_pos, length(tx_symbols)-N+1 : length(tx_symbols)];
+                    i = i + N;
+                else
+                    remaining = num_symbols - i + 1;
+                    tx_symbols = [tx_symbols, data_symbols(i:end)];
+                    data_pos = [data_pos, length(tx_symbols)-remaining+1 : length(tx_symbols)];
+                    break;
+                end
+            end
+
+            len = length(tx_symbols);
+
+            % Canal Rayleigh plano sin Doppler
+            H_full = (randn(1, len) + 1j*randn(1, len)) / sqrt(2);
+
+            noise = sqrt(N0)*(randn(1,len) + 1j*randn(1,len));
+            y = tx_symbols .* H_full + noise;
+
+            % Interpolación spline
+            rx_pilots = y(pilot_pos);
+            csi_est = rx_pilots / pilot_sym;
+            csi_interp_full = interp1(pilot_pos, csi_est, data_pos, 'spline');
+
+            rx_data = y(data_pos);
+            y_eq = rx_data ./ csi_interp_full;
+
+            % Decodificación
+            decoded_bits = zeros(num_bits,1);
+            for n = 1:num_symbols
+                distances = abs(y_eq(n) - mapping).^2;
+                [~, idx_min] = min(distances);
+                decoded_bits(2*n-1:2*n) = bit_map(idx_min,:).';
+            end
+            ber_total(idx) = ber_total(idx) + sum(decoded_bits.' ~= bits);
+
+            should_save = (run == 1);
+            if should_save && ismember(EbN0_dB_val, snr_plot_vals)
+                if EbN0_dB_val < 0
+                    s = sprintf('snr_m%d', abs(EbN0_dB_val));
+                else
+                    s = sprintf('snr_%d', EbN0_dB_val);
+                end
+                saved_constellations.(s).tx = data_symbols;
+                saved_constellations.(s).rx_awgn = data_symbols + noise(1:num_symbols);
+                saved_constellations.(s).rx_multipath = rx_data;
+                saved_constellations.(s).rx_eq = y_eq;
+            end
+        end
+    end
+
+    ber_avg = ber_total / (num_runs * num_bits);
+    semilogy(EbN0_dB, ber_avg, 'Color', [0.4 0.4 0.4], 'LineStyle', '--', 'LineWidth', 2); hold on;
+    legend_entries{end+1} = 'L=inf';
+
     % Curva teórica
     EbN0_lin = 10.^(EbN0_dB/10);
     ber_rayleigh_theory = 0.5*(1 - sqrt(EbN0_lin./(EbN0_lin+1)));
@@ -146,7 +225,7 @@ for iN = 1:length(N_vals)
     legend(legend_entries, 'Location', 'southwest');
     xlabel('E_b/N_0 [dB]');
     ylabel('BER');
-    title(sprintf('BER para QPSK con N = %d símbolos piloto (Interpolación cubica)', N));
+    title(sprintf('BER para QPSK con N = %d simbolos entre pilotos (Interpolación cúbica)', N+1));
 
     %% Figura de constelaciones
     figure;
@@ -184,5 +263,5 @@ for iN = 1:length(N_vals)
         end
     end
 
-    sgtitle(sprintf('Constelaciones con N = %d símbolos piloto (cubic)', N));
+    sgtitle(sprintf('Constelaciones con N = %d símbolos entre pilotos (cubic spline)', N+1));
 end

@@ -1,38 +1,29 @@
 clc; clear all; close all;
 
-% Distancias entre pilotos a evaluar
-N_vals = [1, 4, 9, 19];
+% Parámetros fijos
+num_bits = 1e3;
+k = 2;
+num_symbols = num_bits / k;
+EbN0_dB = -2:2:30;
+num_runs = 21;
+mapping = [1+1j; 1-1j; -1+1j; -1-1j] / sqrt(2);
+bit_map = [0 0; 0 1; 1 0; 1 1];
+snr_plot_vals = [-2, 0, 10, 30]; % SNRs para los que se grafican constelaciones
+L_vals = [5, 40];
+v_kmh_vals = [30, 120];
+fc_vals = [700e6, 3.5e9];
+
+% Pilotos a probar
+N_vals = [4, 9, 19];
+pilot_sym = 1 + 1j;
+
+% Colores y estilos
+colors = ['r', 'g', 'b', 'm', 'k', 'c', 'y', 'c'];
+styles = {'-', '--', '-.', ':'};
 
 for iN = 1:length(N_vals)
     N = N_vals(iN);
-    fprintf('\n--- Simulación con piloto cada %d símbolos (N = %d) ---\n', N, N);
-
-    % Parámetros fijos
-    num_bits = 1e5;
-    k = 4;  % 16-QAM usa 4 bits por símbolo
-    num_symbols = num_bits / k;
-    EbN0_dB = -2:2:30;
-    num_runs = 21;
-
-    % Constelación 16-QAM normalizada
-    re_vals = [-3, -1, 1, 3];
-    im_vals = [-3, -1, 1, 3];
-    [re_grid, im_grid] = meshgrid(re_vals, im_vals);
-    mapping = (re_grid(:) + 1j*im_grid(:)) / sqrt(10);
-    bit_map = de2bi(0:15, 4, 'left-msb');
-
-    snr_plot_vals = [-2, 0, 10, 30];
     saved_constellations = struct();
-
-    L_vals = [5, 40];
-    v_kmh_vals = [30, 120];
-    fc_vals = [700e6, 3.5e9];
-
-    pilot_sym = mapping(1);
-
-    colors = ['r', 'g', 'b', 'm', 'k', 'c', 'y', 'c'];
-    styles = {'-', '--', '-.', ':'};
-
     figure;
     legend_entries = {};
     plot_idx = 1;
@@ -56,9 +47,10 @@ for iN = 1:length(N_vals)
                     N0 = 1/(2*k*EbN0);
 
                     for run = 1:num_runs
+                        % Generar bits y símbolos
                         bits = randi([0 1], 1, num_bits);
-                        bit_quads = reshape(bits, 4, []).';
-                        indices = bi2de(bit_quads, 'left-msb') + 1;
+                        bit_pairs = reshape(bits, 2, []).';
+                        indices = bit_pairs(:,1)*2 + bit_pairs(:,2) + 1;
                         data_symbols = mapping(indices).';
 
                         % Insertar pilotos
@@ -69,6 +61,7 @@ for iN = 1:length(N_vals)
                         while i <= num_symbols
                             tx_symbols = [tx_symbols, pilot_sym];
                             pilot_pos = [pilot_pos, length(tx_symbols)];
+
                             if i+N-1 <= num_symbols
                                 tx_symbols = [tx_symbols, data_symbols(i:i+N-1)];
                                 data_pos = [data_pos, length(tx_symbols)-N+1 : length(tx_symbols)];
@@ -83,7 +76,7 @@ for iN = 1:length(N_vals)
 
                         len = length(tx_symbols);
 
-                        % Canal Rayleigh + ruido
+                        % Canal Rayleigh y ruido con Doppler
                         t = linspace(0, 1, len);
                         an = ones(1,L)/sqrt(L);
                         thetan = 2*pi*rand(1,L);
@@ -97,22 +90,26 @@ for iN = 1:length(N_vals)
                         noise = sqrt(N0)*(randn(1,len) + 1j*randn(1,len));
                         y = tx_symbols .* H_full + noise;
 
-                        % Estimación CSI (spline)
+                        % Estimación CSI
                         rx_pilots = y(pilot_pos);
                         csi_est = rx_pilots / pilot_sym;
-                        csi_interp_full = interp1(pilot_pos, csi_est, data_pos, 'spline');
+                        csi_interp_full = interpft(csi_est, length(tx_symbols));
 
+                        % Ecualización
                         rx_data = y(data_pos);
-                        y_eq = rx_data ./ csi_interp_full;
+                        csi_used = csi_interp_full(data_pos);
+                        y_eq = rx_data ./ csi_used;
 
+                        % Decodificación
                         decoded_bits = zeros(num_bits,1);
                         for n = 1:num_symbols
                             distances = abs(y_eq(n) - mapping).^2;
                             [~, idx_min] = min(distances);
-                            decoded_bits(4*n-3:4*n) = bit_map(idx_min,:).';
+                            decoded_bits(2*n-1:2*n) = bit_map(idx_min,:).';
                         end
                         ber_total(idx) = ber_total(idx) + sum(decoded_bits.' ~= bits);
 
+                        % Guardar constelaciones (solo primera combinación y primer run)
                         should_save = (run == 1) && (iL == 1) && (iv == 1) && (ifc == 1);
                         if should_save && ismember(EbN0_dB_val, snr_plot_vals)
                             if EbN0_dB_val < 0
@@ -124,7 +121,6 @@ for iN = 1:length(N_vals)
                             saved_constellations.(s).rx_awgn = data_symbols + noise(1:num_symbols);
                             saved_constellations.(s).rx_multipath = rx_data;
                             saved_constellations.(s).rx_eq = y_eq;
-                            fprintf('Guardando constelaciones para %s (N = %d)\n', s, N);
                         end
                     end
                 end
@@ -141,22 +137,101 @@ for iN = 1:length(N_vals)
         end
     end
 
-    % Curva teórica precisa para 16-QAM en Rayleigh
+    % ----------- CASO SIN DOPPLER -------------
+    ber_total = zeros(1, length(EbN0_dB));
+
+    for idx = 1:length(EbN0_dB)
+        EbN0_dB_val = EbN0_dB(idx);
+        EbN0 = 10^(EbN0_dB_val/10);
+        N0 = 1/(2*k*EbN0);
+
+        for run = 1:num_runs
+            bits = randi([0 1], 1, num_bits);
+            bit_pairs = reshape(bits, 2, []).';
+            indices = bit_pairs(:,1)*2 + bit_pairs(:,2) + 1;
+            data_symbols = mapping(indices).';
+
+            % Insertar pilotos
+            tx_symbols = [];
+            pilot_pos = [];
+            data_pos = [];
+            i = 1;
+            while i <= num_symbols
+                tx_symbols = [tx_symbols, pilot_sym];
+                pilot_pos = [pilot_pos, length(tx_symbols)];
+
+                if i+N-1 <= num_symbols
+                    tx_symbols = [tx_symbols, data_symbols(i:i+N-1)];
+                    data_pos = [data_pos, length(tx_symbols)-N+1 : length(tx_symbols)];
+                    i = i + N;
+                else
+                    remaining = num_symbols - i + 1;
+                    tx_symbols = [tx_symbols, data_symbols(i:end)];
+                    data_pos = [data_pos, length(tx_symbols)-remaining+1 : length(tx_symbols)];
+                    break;
+                end
+            end
+
+            len = length(tx_symbols);
+
+            % Canal Rayleigh plano sin Doppler
+            H_full = (randn(1, len) + 1j*randn(1, len)) / sqrt(2);
+
+            noise = sqrt(N0)*(randn(1,len) + 1j*randn(1,len));
+            y = tx_symbols .* H_full + noise;
+
+            % Estimación CSI
+            rx_pilots = y(pilot_pos);
+            csi_est = rx_pilots / pilot_sym;
+            csi_interp_full = interpft(csi_est, length(tx_symbols));
+
+            % Ecualización
+            rx_data = y(data_pos);
+            csi_used = csi_interp_full(data_pos);
+            y_eq = rx_data ./ csi_used;
+
+            % Decodificación
+            decoded_bits = zeros(num_bits,1);
+            for n = 1:num_symbols
+                distances = abs(y_eq(n) - mapping).^2;
+                [~, idx_min] = min(distances);
+                decoded_bits(2*n-1:2*n) = bit_map(idx_min,:).';
+            end
+            ber_total(idx) = ber_total(idx) + sum(decoded_bits.' ~= bits);
+
+            % Guardar constelaciones
+            should_save = (run == 1);
+            if should_save && ismember(EbN0_dB_val, snr_plot_vals)
+                if EbN0_dB_val < 0
+                    s = sprintf('snr_m%d', abs(EbN0_dB_val));
+                else
+                    s = sprintf('snr_%d', EbN0_dB_val);
+                end
+                saved_constellations.(s).tx = data_symbols;
+                saved_constellations.(s).rx_awgn = data_symbols + noise(1:num_symbols);
+                saved_constellations.(s).rx_multipath = rx_data;
+                saved_constellations.(s).rx_eq = y_eq;
+            end
+        end
+    end
+
+    ber_avg = ber_total / (num_runs * num_bits);
+    semilogy(EbN0_dB, ber_avg, 'Color', [0.4 0.4 0.4], 'LineStyle', '--', 'LineWidth', 2); hold on;
+    legend_entries{end+1} = 'L=inf';
+
+    % Curva teórica
     EbN0_lin = 10.^(EbN0_dB/10);
-    M = 16;
-    k = log2(M);
-    gamma = (3/(M-1)) * EbN0_lin;
-    Pb_16qam_rayleigh = (4/k) * (1 - 1/sqrt(M)) * 0.5 .* (1 - sqrt(gamma ./ (gamma + 1)));
-    semilogy(EbN0_dB, Pb_16qam_rayleigh, 'k--', 'LineWidth', 2);
-    legend_entries{end+1} = 'Teórica Rayleigh 16QAM';
+    ber_rayleigh_theory = 0.5*(1 - sqrt(EbN0_lin./(EbN0_lin+1)));
+    semilogy(EbN0_dB, ber_rayleigh_theory, 'k--', 'LineWidth', 2);
+    legend_entries{end+1} = 'Teórica Rayleigh';
 
     grid on;
     legend(legend_entries, 'Location', 'southwest');
     xlabel('E_b/N_0 [dB]');
     ylabel('BER');
-    title(sprintf('BER para 16QAM (cubic, N = %d)', N));
+    title(sprintf('BER para QPSK pilotos cada %d símbolos (canal multipath + AWGN)', N+1));
 
-    %% Constelaciones
+    % Figura de constelaciones
     figure;
     snrs = snr_plot_vals;
     titles = {'1. Original', '2. Solo AWGN', '3. Multipath + AWGN', '4. Ecualizado'};
@@ -188,9 +263,9 @@ for iN = 1:length(N_vals)
             plot(real(data.rx_eq), imag(data.rx_eq), 'go'); axis equal; grid on;
             title(titles{4});
         else
-            fprintf('Advertencia: no se guardaron constelaciones para SNR = %d dB (N = %d)\n', snrs(i), N);
+            fprintf('Advertencia: no se guardaron constelaciones para SNR = %d dB\n', snrs(i));
         end
     end
 
-    sgtitle(sprintf('Constelaciones cubi para SNR = -2, 0, 10, 30 dB (N = %d)', N));
+    sgtitle(sprintf('Constelaciones FFT (N = %d símbolos entre pilotos)', N+1));
 end

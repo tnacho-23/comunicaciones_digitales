@@ -1,23 +1,33 @@
 clc; clear all; close all;
 
 % Parámetros fijos
-num_bits = 1e5;
-k = 2;
+num_bits = 1e3;
+k = 4; % 16QAM -> 4 bits/símbolo
 num_symbols = num_bits / k;
 EbN0_dB = -2:2:30;
 num_runs = 21;
-mapping = [1+1j; 1-1j; -1+1j; -1-1j] / sqrt(2);
-bit_map = [0 0; 0 1; 1 0; 1 1];
-snr_plot_vals = [-2, 0, 10, 30]; % SNRs para los que se grafican constelaciones
+
+% Mapeo Gray 16QAM
+re = [-3 -1 +3 +1];
+im = [-3 -1 +3 +1];
+mapping = [];
+bit_map = [];
+for i = 1:4
+    for j = 1:4
+        symbol = (re(j) + 1j*im(i)) / sqrt(10);
+        mapping = [mapping; symbol];
+        bits = [bitget(j-1,2), bitget(j-1,1), bitget(i-1,2), bitget(i-1,1)];
+        bit_map = [bit_map; bits];
+    end
+end
+
+snr_plot_vals = [-2, 0, 10, 30];
 L_vals = [5, 40];
 v_kmh_vals = [30, 120];
 fc_vals = [700e6, 3.5e9];
-
-% Pilotos a probar
-N_vals = [1, 4, 9, 19];
+N_vals = [4, 9, 19];
 pilot_sym = 1 + 1j;
 
-% Colores y estilos
 colors = ['r', 'g', 'b', 'm', 'k', 'c', 'y', 'c'];
 styles = {'-', '--', '-.', ':'};
 
@@ -47,13 +57,11 @@ for iN = 1:length(N_vals)
                     N0 = 1/(2*k*EbN0);
 
                     for run = 1:num_runs
-                        % Generar bits y símbolos
                         bits = randi([0 1], 1, num_bits);
-                        bit_pairs = reshape(bits, 2, []).';
-                        indices = bit_pairs(:,1)*2 + bit_pairs(:,2) + 1;
+                        bit_quads = reshape(bits, 4, []).';
+                        indices = bi2de(bit_quads, 'left-msb') + 1;
                         data_symbols = mapping(indices).';
 
-                        % Insertar pilotos
                         tx_symbols = [];
                         pilot_pos = [];
                         data_pos = [];
@@ -75,8 +83,6 @@ for iN = 1:length(N_vals)
                         end
 
                         len = length(tx_symbols);
-
-                        % Canal Rayleigh y ruido
                         t = linspace(0, 1, len);
                         an = ones(1,L)/sqrt(L);
                         thetan = 2*pi*rand(1,L);
@@ -90,26 +96,22 @@ for iN = 1:length(N_vals)
                         noise = sqrt(N0)*(randn(1,len) + 1j*randn(1,len));
                         y = tx_symbols .* H_full + noise;
 
-                        % Estimación CSI
                         rx_pilots = y(pilot_pos);
                         csi_est = rx_pilots / pilot_sym;
                         csi_interp_full = interpft(csi_est, length(tx_symbols));
 
-                        % Ecualización
                         rx_data = y(data_pos);
                         csi_used = csi_interp_full(data_pos);
                         y_eq = rx_data ./ csi_used;
 
-                        % Decodificación
                         decoded_bits = zeros(num_bits,1);
                         for n = 1:num_symbols
-                            distances = abs(y_eq(n) - mapping).^2;
+                            distances = abs(y_eq(n) - mapping.').^2;
                             [~, idx_min] = min(distances);
-                            decoded_bits(2*n-1:2*n) = bit_map(idx_min,:).';
+                            decoded_bits((n-1)*4 + 1 : n*4) = bit_map(idx_min,:).';
                         end
                         ber_total(idx) = ber_total(idx) + sum(decoded_bits.' ~= bits);
 
-                        % Guardar constelaciones (solo primera combinación y primer run)
                         should_save = (run == 1) && (iL == 1) && (iv == 1) && (ifc == 1);
                         if should_save && ismember(EbN0_dB_val, snr_plot_vals)
                             if EbN0_dB_val < 0
@@ -126,18 +128,86 @@ for iN = 1:length(N_vals)
                 end
 
                 ber_avg = ber_total / (num_runs * num_bits);
-
                 style = styles{mod(plot_idx-1,length(styles))+1};
                 color = colors(mod(plot_idx-1,length(colors))+1);
                 semilogy(EbN0_dB, ber_avg, [color style], 'LineWidth', 1.8); hold on;
-
                 legend_entries{end+1} = sprintf('L=%d, v=%dkm/h, fc=%.1fGHz', L, v_kmh, fc/1e9);
                 plot_idx = plot_idx + 1;
             end
         end
     end
 
-    % Curva teórica
+    ber_total = zeros(1, length(EbN0_dB));
+    for idx = 1:length(EbN0_dB)
+        EbN0_dB_val = EbN0_dB(idx);
+        EbN0 = 10^(EbN0_dB_val/10);
+        N0 = 1/(2*k*EbN0);
+
+        for run = 1:num_runs
+            bits = randi([0 1], 1, num_bits);
+            bit_quads = reshape(bits, 4, []).';
+            indices = bi2de(bit_quads, 'left-msb') + 1;
+            data_symbols = mapping(indices).';
+
+            tx_symbols = [];
+            pilot_pos = [];
+            data_pos = [];
+            i = 1;
+            while i <= num_symbols
+                tx_symbols = [tx_symbols, pilot_sym];
+                pilot_pos = [pilot_pos, length(tx_symbols)];
+
+                if i+N-1 <= num_symbols
+                    tx_symbols = [tx_symbols, data_symbols(i:i+N-1)];
+                    data_pos = [data_pos, length(tx_symbols)-N+1 : length(tx_symbols)];
+                    i = i + N;
+                else
+                    remaining = num_symbols - i + 1;
+                    tx_symbols = [tx_symbols, data_symbols(i:end)];
+                    data_pos = [data_pos, length(tx_symbols)-remaining+1 : length(tx_symbols)];
+                    break;
+                end
+            end
+
+            len = length(tx_symbols);
+            H_full = (randn(1, len) + 1j*randn(1, len)) / sqrt(2);
+            noise = sqrt(N0)*(randn(1,len) + 1j*randn(1,len));
+            y = tx_symbols .* H_full + noise;
+
+            rx_pilots = y(pilot_pos);
+            csi_est = rx_pilots / pilot_sym;
+            csi_interp_full = interpft(csi_est, length(tx_symbols));
+
+            rx_data = y(data_pos);
+            csi_used = csi_interp_full(data_pos);
+            y_eq = rx_data ./ csi_used;
+
+            decoded_bits = zeros(num_bits,1);
+            for n = 1:num_symbols
+                distances = abs(y_eq(n) - mapping.').^2;
+                [~, idx_min] = min(distances);
+                decoded_bits((n-1)*4 + 1 : n*4) = bit_map(idx_min,:).';
+            end
+            ber_total(idx) = ber_total(idx) + sum(decoded_bits.' ~= bits);
+
+            if run == 1 && ismember(EbN0_dB_val, snr_plot_vals)
+                if EbN0_dB_val < 0
+                    s = sprintf('snr_m%d', abs(EbN0_dB_val));
+                else
+                    s = sprintf('snr_%d', EbN0_dB_val);
+                end
+                saved_constellations.(s).tx = data_symbols;
+                saved_constellations.(s).rx_awgn = data_symbols + noise(1:num_symbols);
+                saved_constellations.(s).rx_multipath = rx_data;
+                saved_constellations.(s).rx_eq = y_eq;
+            end
+        end
+    end
+
+    ber_avg = ber_total / (num_runs * num_bits);
+    semilogy(EbN0_dB, ber_avg, 'Color', [0.4 0.4 0.4], 'LineStyle', '--', 'LineWidth', 2); hold on;
+    legend_entries{end+1} = 'L=inf';
+
     EbN0_lin = 10.^(EbN0_dB/10);
     ber_rayleigh_theory = 0.5*(1 - sqrt(EbN0_lin./(EbN0_lin+1)));
     semilogy(EbN0_dB, ber_rayleigh_theory, 'k--', 'LineWidth', 2);
@@ -147,10 +217,8 @@ for iN = 1:length(N_vals)
     legend(legend_entries, 'Location', 'southwest');
     xlabel('E_b/N_0 [dB]');
     ylabel('BER');
+    title(sprintf('BER para 16QAM pilotos cada %d símbolos (canal multipath + AWGN)', N+1));
 
-    title(sprintf('BER para QPSK pilotos cada %d datos (canal multipath + AWGN)', N));
-    
-    %% Figura de constelaciones
     figure;
     snrs = snr_plot_vals;
     titles = {'1. Original', '2. Solo AWGN', '3. Multipath + AWGN', '4. Ecualizado'};
@@ -164,27 +232,18 @@ for iN = 1:length(N_vals)
 
         if isfield(saved_constellations, s)
             data = saved_constellations.(s);
-
-            subplot(4,4,(i-1)*4+1);
-            plot(real(data.tx), imag(data.tx), 'bo'); axis equal; grid on;
-            title(titles{1});
-            ylabel(sprintf('SNR = %d dB', snrs(i)));
-
-            subplot(4,4,(i-1)*4+2);
-            plot(real(data.rx_awgn), imag(data.rx_awgn), 'ro'); axis equal; grid on;
+            subplot(4,4,(i-1)*4+1); plot(real(data.tx), imag(data.tx), 'bo'); axis equal; grid on;
+            title(titles{1}); ylabel(sprintf('SNR = %d dB', snrs(i)));
+            subplot(4,4,(i-1)*4+2); plot(real(data.rx_awgn), imag(data.rx_awgn), 'ro'); axis equal; grid on;
             title(titles{2});
-
-            subplot(4,4,(i-1)*4+3);
-            plot(real(data.rx_multipath), imag(data.rx_multipath), 'mo'); axis equal; grid on;
+            subplot(4,4,(i-1)*4+3); plot(real(data.rx_multipath), imag(data.rx_multipath), 'mo'); axis equal; grid on;
             title(titles{3});
-
-            subplot(4,4,(i-1)*4+4);
-            plot(real(data.rx_eq), imag(data.rx_eq), 'go'); axis equal; grid on;
+            subplot(4,4,(i-1)*4+4); plot(real(data.rx_eq), imag(data.rx_eq), 'go'); axis equal; grid on;
             title(titles{4});
         else
             fprintf('Advertencia: no se guardaron constelaciones para SNR = %d dB\n', snrs(i));
         end
     end
 
-    sgtitle(sprintf('Constelaciones FFT (N = %d símbolos entre pilotos)', N));
+    sgtitle(sprintf('Constelaciones FFT (N = %d símbolos entre pilotos)', N+1));
 end
