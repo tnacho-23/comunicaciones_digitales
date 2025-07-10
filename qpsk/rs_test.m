@@ -3,8 +3,8 @@ clc; clear all; close all;
 % -------------------------------
 % Parámetros generales
 % -------------------------------
-use_hm_coding = false;  % <--- Activar codificación Hamming(7,4)
-num_bits = 1e4;
+use_rs_coding = true;  % <--- Activar/desactivar codificación RS
+num_bits = 1e4;        % Cantidad base de bits (se ajustará si se usa RS)
 k = 2;                 % bits por símbolo QPSK
 EbN0_dB = -2:2:30;
 num_runs = 21;
@@ -13,10 +13,31 @@ bit_map = [0 0; 0 1; 1 0; 1 1];
 snr_plot_vals = [-2, 0, 10, 30];
 saved_constellations = struct();
 L_vals = [10];
-v_kmh_vals = [350];
-fc_vals = [700e6, 3.5e9];
+v_kmh_vals = [50];          
+fc_vals = [700e6, 3.5e9];        
 colors = ['r', 'g', 'b', 'm', 'k', 'c', 'y', 'c'];
 styles = {'-', '--', '-.', ':'};
+
+% -------------------------------
+% Reed-Solomon Parameters
+% -------------------------------
+if use_rs_coding
+    m = 8;
+    n_rs = 2^m - 1;
+    k_rs = 239;
+    bits_per_rsword = k_rs * m;
+    rsEncoder = comm.RSEncoder('CodewordLength', n_rs, 'MessageLength', k_rs);
+    rsDecoder = comm.RSDecoder('CodewordLength', n_rs, 'MessageLength', k_rs);
+
+    min_bits_rs = bits_per_rsword;
+    if num_bits < min_bits_rs
+        error('num_bits (%d) es muy pequeño para aplicar RS. Usa al menos %d bits.', num_bits, min_bits_rs);
+    end
+
+    num_rswords = floor(num_bits / bits_per_rsword);
+    num_bits = num_rswords * bits_per_rsword;
+    fprintf('Ajustando num_bits a %d para RS (múltiplo de %d bits)\n', num_bits, bits_per_rsword);
+end
 
 figure;
 legend_entries = {};
@@ -43,17 +64,18 @@ for ifc = 1:length(fc_vals)
         for run = 1:num_runs
             bits_orig = randi([0 1], 1, num_bits);
 
-            if use_hm_coding
-                rem = mod(length(bits_orig), 4);
-                if rem ~= 0
-                    bits_orig = [bits_orig, zeros(1, 4 - rem)];
-                end
-                bits = hamming74_encode(bits_orig);
+            if use_rs_coding
+                bits_rs_in = reshape(bits_orig, 8, []).';
+                sym_rs = bi2de(bits_rs_in, 'left-msb');
+                sym_enc = step(rsEncoder, sym_rs);
+                bits_enc = de2bi(sym_enc, 8, 'left-msb');
+                bits = reshape(bits_enc.', 1, []);
             else
                 bits = bits_orig;
             end
 
             num_symbols = length(bits) / k;
+
             bit_pairs = reshape(bits, 2, []).';
             idx_sym = bit_pairs(:,1)*2 + bit_pairs(:,2) + 1;
             symbols = mapping(idx_sym).';
@@ -79,12 +101,12 @@ for ifc = 1:length(fc_vals)
                 decoded_bits(2*n-1:2*n) = bit_map(idx_min,:).';
             end
 
-            if use_hm_coding
-                rem = mod(length(decoded_bits), 7);
-                if rem ~= 0
-                    decoded_bits = [decoded_bits; zeros(7 - rem, 1)];
-                end
-                bits_final = hamming74_decode(decoded_bits.');
+            if use_rs_coding
+                bits_dec = reshape(decoded_bits, 8, []).';
+                sym_rec = bi2de(bits_dec, 'left-msb');
+                sym_corr = step(rsDecoder, sym_rec);
+                bits_corr = de2bi(sym_corr, 8, 'left-msb');
+                bits_final = reshape(bits_corr.', 1, []);
                 ber_total(idx) = ber_total(idx) + sum(bits_final ~= bits_orig(1:length(bits_final)));
             else
                 ber_total(idx) = ber_total(idx) + sum(decoded_bits.' ~= bits);
@@ -122,17 +144,18 @@ for idx = 1:length(EbN0_dB)
     for run = 1:num_runs
         bits_orig = randi([0 1], 1, num_bits);
 
-        if use_hm_coding
-            rem = mod(length(bits_orig), 4);
-            if rem ~= 0
-                bits_orig = [bits_orig, zeros(1, 4 - rem)];
-            end
-            bits = hamming74_encode(bits_orig);
+        if use_rs_coding
+            bits_rs_in = reshape(bits_orig, 8, []).';
+            sym_rs = bi2de(bits_rs_in, 'left-msb');
+            sym_enc = step(rsEncoder, sym_rs);
+            bits_enc = de2bi(sym_enc, 8, 'left-msb');
+            bits = reshape(bits_enc.', 1, []);
         else
             bits = bits_orig;
         end
 
         num_symbols = length(bits) / k;
+
         bit_pairs = reshape(bits, 2, []).';
         idx_sym = bit_pairs(:,1)*2 + bit_pairs(:,2) + 1;
         symbols = mapping(idx_sym).';
@@ -149,12 +172,12 @@ for idx = 1:length(EbN0_dB)
             decoded_bits(2*n-1:2*n) = bit_map(idx_min,:).';
         end
 
-        if use_hm_coding
-            rem = mod(length(decoded_bits), 7);
-            if rem ~= 0
-                decoded_bits = [decoded_bits; zeros(7 - rem, 1)];
-            end
-            bits_final = hamming74_decode(decoded_bits.');
+        if use_rs_coding
+            bits_dec = reshape(decoded_bits, 8, []).';
+            sym_rec = bi2de(bits_dec, 'left-msb');
+            sym_corr = step(rsDecoder, sym_rec);
+            bits_corr = de2bi(sym_corr, 8, 'left-msb');
+            bits_final = reshape(bits_corr.', 1, []);
             ber_total(idx) = ber_total(idx) + sum(bits_final ~= bits_orig(1:length(bits_final)));
         else
             ber_total(idx) = ber_total(idx) + sum(decoded_bits.' ~= bits);
@@ -203,38 +226,3 @@ for i = 1:length(snrs)
     end
 end
 sgtitle('Constelaciones para SNR = -2, 0, 10, 30 dB (L=5, v=30km/h, fc=700MHz)');
-
-% -------------------------------
-% Funciones Hamming(7,4)
-% -------------------------------
-function encoded = hamming74_encode(bits)
-    G = [1 0 0 0 1 1 0;
-         0 1 0 0 1 0 1;
-         0 0 1 0 1 0 0;
-         0 0 0 1 0 1 1]; % Matriz generadora
-    k = 4;
-    num_blocks = length(bits)/k;
-    bits_reshaped = reshape(bits, k, num_blocks).';
-    encoded = mod(bits_reshaped * G, 2);
-    encoded = reshape(encoded.', 1, []);
-end
-
-function decoded = hamming74_decode(bits)
-    H = [1 1 1 0 1 0 0;
-         1 0 0 1 0 1 0;
-         0 1 0 1 0 0 1]; % Matriz de paridad
-    n = 7;
-    num_blocks = length(bits)/n;
-    bits_reshaped = reshape(bits, n, num_blocks).';
-    decoded = zeros(num_blocks, 4);
-    for i = 1:num_blocks
-        r = bits_reshaped(i,:);
-        syndrome = mod(H * r.', 2);
-        syndrome_dec = bi2de(syndrome.', 'left-msb');
-        if syndrome_dec ~= 0 && syndrome_dec <= n
-            r(syndrome_dec) = mod(r(syndrome_dec) + 1, 2);
-        end
-        decoded(i,:) = r(1:4);
-    end
-    decoded = reshape(decoded.', 1, []);
-end
