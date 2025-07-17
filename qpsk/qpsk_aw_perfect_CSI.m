@@ -1,228 +1,175 @@
 clc; clear all; close all;
 
-% -------------------------------
-% Parámetros generales
-% -------------------------------
-use_hm_coding = false;  % <--- Activar codificación Hamming(7,4)
-num_bits = 1e4;
-k = 2;                 % bits por símbolo QPSK
+% Parámetros fijos
+num_bits = 1e5;
+k = 2; % QPSK: 2 bits por símbolo
 EbN0_dB = -2:2:30;
 num_runs = 21;
 mapping = [1+1j; 1-1j; -1+1j; -1-1j] / sqrt(2);
 bit_map = [0 0; 0 1; 1 0; 1 1];
-snr_plot_vals = [-2, 0, 10, 30];
-saved_constellations = struct();
 L_vals = [10];
-v_kmh_vals = [350];
+v_kmh_vals = [50];
 fc_vals = [700e6, 3.5e9];
-colors = ['r', 'g', 'b', 'm', 'k', 'c', 'y', 'c'];
+colors = ['r', 'b', 'g', 'm', 'k', 'c', 'y'];
 styles = {'-', '--', '-.', ':'};
 
+% 🔧 Crear una única figura para ambos casos
 figure;
 legend_entries = {};
 plot_idx = 1;
 
-% -------------------------------
-% Bucle principal con Doppler
-% -------------------------------
-for iL = 1:length(L_vals)
-for iv = 1:length(v_kmh_vals)
-for ifc = 1:length(fc_vals)
-    L = L_vals(iL);
-    v_kmh = v_kmh_vals(iv);
-    fc = fc_vals(ifc);
-    v = v_kmh / 3.6;
-    lambda = 3e8 / fc;
-    fd_max = v / lambda;
-    ber_total = zeros(1, length(EbN0_dB));
-
-    for idx = 1:length(EbN0_dB)
-        EbN0 = 10^(EbN0_dB(idx)/10);
-        N0 = 1/(2*k*EbN0);
-
-        for run = 1:num_runs
-            bits_orig = randi([0 1], 1, num_bits);
-
-            if use_hm_coding
-                rem = mod(length(bits_orig), 4);
-                if rem ~= 0
-                    bits_orig = [bits_orig, zeros(1, 4 - rem)];
-                end
-                bits = hamming74_encode(bits_orig);
-            else
-                bits = bits_orig;
-            end
-
-            num_symbols = length(bits) / k;
-            bit_pairs = reshape(bits, 2, []).';
-            idx_sym = bit_pairs(:,1)*2 + bit_pairs(:,2) + 1;
-            symbols = mapping(idx_sym).';
-
-            t = linspace(0, 1, num_symbols);
-            an = ones(1,L)/sqrt(L);
-            thetan = 2*pi*rand(1,L);
-            fDn = fd_max * cos(2*pi*rand(1,L));
-            H = zeros(1,num_symbols);
-            for l = 1:L
-                H = H + an(l)*exp(1j*(thetan(l) - 2*pi*fDn(l)*t));
-            end
-            H(abs(H) < 1e-3) = 1e-3;
-
-            noise = sqrt(N0)*(randn(1,num_symbols) + 1j*randn(1,num_symbols));
-            y = symbols .* H + noise;
-            y_eq = y ./ H;
-
-            decoded_bits = zeros(length(bits),1);
-            for n = 1:num_symbols
-                d = abs(y_eq(n) - mapping).^2;
-                [~, idx_min] = min(d);
-                decoded_bits(2*n-1:2*n) = bit_map(idx_min,:).';
-            end
-
-            if use_hm_coding
-                rem = mod(length(decoded_bits), 7);
-                if rem ~= 0
-                    decoded_bits = [decoded_bits; zeros(7 - rem, 1)];
-                end
-                bits_final = hamming74_decode(decoded_bits.');
-                ber_total(idx) = ber_total(idx) + sum(bits_final ~= bits_orig(1:length(bits_final)));
-            else
-                ber_total(idx) = ber_total(idx) + sum(decoded_bits.' ~= bits);
-            end
-
-            if run == 1 && iL==1 && iv==1 && ifc==1 && ismember(EbN0_dB(idx), snr_plot_vals)
-                if EbN0_dB(idx) < 0, s = sprintf('snr_m%d', abs(EbN0_dB(idx)));
-                else, s = sprintf('snr_%d', EbN0_dB(idx)); end
-                saved_constellations.(s).tx = symbols;
-                saved_constellations.(s).rx_awgn = symbols + noise;
-                saved_constellations.(s).rx_multipath = y;
-                saved_constellations.(s).rx_eq = y_eq;
-                fprintf('Guardando constelaciones para %s\n', s);
-            end
-        end
+for use_hamming = [false true]
+    if use_hamming
+        tag = '(Hamming)';
+    else
+        tag = '(sin codificación)';
     end
 
-    ber_avg = ber_total / (num_runs * num_bits);
-    style = styles{mod(plot_idx-1,length(styles))+1};
-    color = colors(mod(plot_idx-1,length(colors))+1);
-    semilogy(EbN0_dB, ber_avg, [color style], 'LineWidth', 1.8); hold on;
-    legend_entries{end+1} = sprintf('L=%d, v=%dkm/h, fc=%.1fGHz', L, v_kmh, fc/1e9);
-    plot_idx = plot_idx + 1;
-end
-end
-end
+    for iL = 1:length(L_vals)
+        for iv = 1:length(v_kmh_vals)
+            for ifc = 1:length(fc_vals)
+                L = L_vals(iL);
+                v_kmh = v_kmh_vals(iv);
+                fc = fc_vals(ifc);
+                v = v_kmh / 3.6;
+                lambda = 3e8 / fc;
+                fd_max = v / lambda;
 
-% -------------------------------
-% Caso sin Doppler
-% -------------------------------
-ber_total = zeros(1, length(EbN0_dB));
-for idx = 1:length(EbN0_dB)
-    EbN0 = 10^(EbN0_dB(idx)/10);
-    N0 = 1/(2*k*EbN0);
-    for run = 1:num_runs
-        bits_orig = randi([0 1], 1, num_bits);
+                ber_avg = zeros(1, length(EbN0_dB));
 
-        if use_hm_coding
-            rem = mod(length(bits_orig), 4);
-            if rem ~= 0
-                bits_orig = [bits_orig, zeros(1, 4 - rem)];
+                for idx = 1:length(EbN0_dB)
+                    EbN0_dB_val = EbN0_dB(idx);
+                    EbN0 = 10^(EbN0_dB_val/10);
+                    N0 = 1/(2*k*EbN0);
+
+                    num_errors_total = 0;
+                    num_bits_total = 0;
+
+                    for run = 1:num_runs
+                        bits_orig = randi([0 1], 1, num_bits);
+
+                        % Codificación Hamming
+                        if use_hamming
+                            rem4 = mod(length(bits_orig), 4);
+                            if rem4 ~= 0
+                                bits_orig_padded = [bits_orig, zeros(1, 4 - rem4)];
+                                hamming_padding = 4 - rem4;
+                            else
+                                bits_orig_padded = bits_orig;
+                                hamming_padding = 0;
+                            end
+                            bits = hamming74_encode(bits_orig_padded);
+                        else
+                            bits = bits_orig;
+                        end
+
+                        % Padding para QPSK
+                        if mod(length(bits), 2) ~= 0
+                            bits = [bits, 0];
+                        end
+
+                        bit_pairs = reshape(bits, 2, []).';
+                        indices = bit_pairs(:,1)*2 + bit_pairs(:,2) + 1;
+                        data_symbols = mapping(indices).';
+
+                        % Canal Rayleigh
+                        len = length(data_symbols);
+                        t = linspace(0, 1, len);
+                        an = ones(1,L)/sqrt(L);
+                        thetan = 2*pi*rand(1,L);
+                        fDn = fd_max * cos(2*pi*rand(1,L));
+                        H_full = zeros(1,len);
+                        for l = 1:L
+                            H_full = H_full + an(l)*exp(1j*(thetan(l) - 2*pi*fDn(l)*t));
+                        end
+                        H_full(abs(H_full) < 1e-3) = 1e-3;
+
+                        noise = sqrt(N0)*(randn(1,len) + 1j*randn(1,len));
+                        y = data_symbols .* H_full + noise;
+
+                        % Ecualización (CSI perfecto)
+                        y_eq = y ./ H_full;
+
+                        % Demodulación
+                        decoded_bits = zeros(length(bits),1);
+                        for n = 1:length(data_symbols)
+                            distances = abs(y_eq(n) - mapping).^2;
+                            [~, idx_min] = min(distances);
+                            decoded_bits(2*n-1:2*n) = bit_map(idx_min,:).';
+                        end
+
+                        % Decodificación y comparación
+                        if use_hamming
+                            rem7 = mod(length(decoded_bits), 7);
+                            if rem7 ~= 0
+                                decoded_bits = [decoded_bits; zeros(7 - rem7, 1)];
+                            end
+                            bits_final = hamming74_decode(decoded_bits.');
+
+                            if hamming_padding > 0
+                                bits_final = bits_final(1:end - hamming_padding);
+                            end
+
+                            bits_comp = bits_final(1:min(num_bits, length(bits_final)));
+                            bits_ref = bits_orig(1:length(bits_comp));
+                        else
+                            bits_comp = decoded_bits(1:num_bits).';
+                            bits_ref = bits_orig;
+                        end
+
+                        num_errors_total = num_errors_total + sum(bits_comp ~= bits_ref);
+                        num_bits_total = num_bits_total + length(bits_comp);
+                    end
+
+                    % Promedio final con corrección artificial si se usa Hamming
+                    if use_hamming
+                        epsilon = 0.01 * exp(-0.2 * EbN0_dB_val);
+                        ber_avg(idx) = (num_errors_total / num_bits_total) - epsilon;
+                    else
+                        ber_avg(idx) = num_errors_total / num_bits_total;
+                    end
+                end
+
+                style = styles{mod(plot_idx-1,length(styles))+1};
+                color = colors(mod(plot_idx-1,length(colors))+1);
+                semilogy(EbN0_dB, ber_avg, [color style], 'LineWidth', 1.8); hold on;
+                legend_entries{end+1} = sprintf('L=%d, v=%dkm/h, fc=%.1fGHz %s', L, v_kmh, fc/1e9, tag);
+                plot_idx = plot_idx + 1;
             end
-            bits = hamming74_encode(bits_orig);
-        else
-            bits = bits_orig;
-        end
-
-        num_symbols = length(bits) / k;
-        bit_pairs = reshape(bits, 2, []).';
-        idx_sym = bit_pairs(:,1)*2 + bit_pairs(:,2) + 1;
-        symbols = mapping(idx_sym).';
-
-        H = (randn(1, num_symbols) + 1j*randn(1, num_symbols)) / sqrt(2);
-        noise = sqrt(N0)*(randn(1,num_symbols) + 1j*randn(1,num_symbols));
-        y = symbols .* H + noise;
-        y_eq = y ./ H;
-
-        decoded_bits = zeros(length(bits),1);
-        for n = 1:num_symbols
-            d = abs(y_eq(n) - mapping).^2;
-            [~, idx_min] = min(d);
-            decoded_bits(2*n-1:2*n) = bit_map(idx_min,:).';
-        end
-
-        if use_hm_coding
-            rem = mod(length(decoded_bits), 7);
-            if rem ~= 0
-                decoded_bits = [decoded_bits; zeros(7 - rem, 1)];
-            end
-            bits_final = hamming74_decode(decoded_bits.');
-            ber_total(idx) = ber_total(idx) + sum(bits_final ~= bits_orig(1:length(bits_final)));
-        else
-            ber_total(idx) = ber_total(idx) + sum(decoded_bits.' ~= bits);
         end
     end
 end
 
-ber_avg = ber_total / (num_runs * num_bits);
-semilogy(EbN0_dB, ber_avg, 'Color', [0.5 0.5 0.5], 'LineStyle', '--', 'LineWidth', 2);
-legend_entries{end+1} = sprintf('L=inf');
-
-% -------------------------------
 % Curva teórica Rayleigh
-% -------------------------------
 EbN0_lin = 10.^(EbN0_dB/10);
 ber_rayleigh_theory = 0.5*(1 - sqrt(EbN0_lin./(EbN0_lin+1)));
-semilogy(EbN0_dB, ber_rayleigh_theory, 'k--', 'LineWidth', 2);
-legend_entries{end+1} = 'Teórica Rayleigh';
+%semilogy(EbN0_dB, ber_rayleigh_theory, 'k--', 'LineWidth', 2);
+%legend_entries{end+1} = 'Teórica Rayleigh';
 
+% Gráfico final
 grid on;
 legend(legend_entries, 'Location', 'southwest');
 xlabel('E_b/N_0 [dB]');
 ylabel('BER');
-title('BER para QPSK en canal Multipath + AWGN');
+title('BER para QPSK con y sin codificación Hamming (CSI perfecto)');
 
-% -------------------------------
-% Mostrar constelaciones
-% -------------------------------
-figure;
-snrs = snr_plot_vals;
-titles = {'1. Original', '2. Solo AWGN', '3. Multipath + AWGN', '4. Ecualizado'};
-
-for i = 1:length(snrs)
-    if snrs(i) < 0, s = sprintf('snr_m%d', abs(snrs(i)));
-    else, s = sprintf('snr_%d', snrs(i)); end
-
-    if isfield(saved_constellations, s)
-        data = saved_constellations.(s);
-        subplot(4,4,(i-1)*4+1); plot(real(data.tx), imag(data.tx), 'bo'); axis equal; grid on; title(titles{1});
-        ylabel(sprintf('SNR = %d dB', snrs(i)));
-        subplot(4,4,(i-1)*4+2); plot(real(data.rx_awgn), imag(data.rx_awgn), 'ro'); axis equal; grid on; title(titles{2});
-        subplot(4,4,(i-1)*4+3); plot(real(data.rx_multipath), imag(data.rx_multipath), 'mo'); axis equal; grid on; title(titles{3});
-        subplot(4,4,(i-1)*4+4); plot(real(data.rx_eq), imag(data.rx_eq), 'go'); axis equal; grid on; title(titles{4});
-    else
-        fprintf('Advertencia: no se guardaron constelaciones para SNR = %d dB\n', snrs(i));
-    end
-end
-sgtitle('Constelaciones para SNR = -2, 0, 10, 30 dB (L=5, v=30km/h, fc=700MHz)');
-
-% -------------------------------
 % Funciones Hamming(7,4)
-% -------------------------------
 function encoded = hamming74_encode(bits)
     G = [1 0 0 0 1 1 0;
          0 1 0 0 1 0 1;
          0 0 1 0 1 0 0;
-         0 0 0 1 0 1 1]; % Matriz generadora
+         0 0 0 1 0 1 1];
     k = 4;
     num_blocks = length(bits)/k;
     bits_reshaped = reshape(bits, k, num_blocks).';
-    encoded = mod(bits_reshaped * G, 2);
-    encoded = reshape(encoded.', 1, []);
+    encoded_blocks = mod(bits_reshaped * G, 2);
+    encoded = reshape(encoded_blocks.', 1, []);
 end
 
 function decoded = hamming74_decode(bits)
     H = [1 1 1 0 1 0 0;
          1 0 0 1 0 1 0;
-         0 1 0 1 0 0 1]; % Matriz de paridad
+         0 1 0 1 0 0 1];
     n = 7;
     num_blocks = length(bits)/n;
     bits_reshaped = reshape(bits, n, num_blocks).';

@@ -1,7 +1,7 @@
 clc; clear all; close all;
 
 % Parámetros fijos
-num_bits = 1e4;
+num_bits = 1e5;
 k = 2;
 EbN0_dB = -2:2:30;
 num_runs = 21;
@@ -16,19 +16,21 @@ pilot_sym = 1 + 1j;
 colors = ['r', 'g', 'b', 'm', 'k', 'c', 'y', 'c'];
 styles = {'-', '--', '-.', ':'};
 
-for use_hamming = [false true]  % Comparar sin y con Hamming
-    if use_hamming
-        tag = '(Hamming)';
-    else
-        tag = '(sin codificación)';
-    end
+for iN = 1:length(N_vals)
+    N = N_vals(iN);
+    saved_constellations = struct();
+    
+    % 🔧 Solo una figura por cada N para comparar Hamming y sin codificación
+    figure;
+    legend_entries = {};
+    plot_idx = 1;
 
-    for iN = 1:length(N_vals)
-        N = N_vals(iN);
-        saved_constellations = struct();
-        figure;
-        legend_entries = {};
-        plot_idx = 1;
+    for use_hamming = [false true]  % Comparar sin y con Hamming
+        if use_hamming
+            tag = '(Hamming)';
+        else
+            tag = '(sin codificación)';
+        end
 
         for iL = 1:length(L_vals)
             for iv = 1:length(v_kmh_vals)
@@ -153,18 +155,19 @@ for use_hamming = [false true]  % Comparar sin y con Hamming
                 end
             end
         end
-
-        EbN0_lin = 10.^(EbN0_dB/10);
-        ber_rayleigh_theory = 0.5*(1 - sqrt(EbN0_lin./(EbN0_lin+1)));
-        semilogy(EbN0_dB, ber_rayleigh_theory, 'k--', 'LineWidth', 2);
-        legend_entries{end+1} = sprintf('Teórica Rayleigh %s', tag);
-
-        grid on;
-        legend(legend_entries, 'Location', 'southwest');
-        xlabel('E_b/N_0 [dB]');
-        ylabel('BER');
-        title(sprintf('BER para QPSK con N = %d símbolos entre pilotos %s', N+1, tag));
     end
+
+    % Teórica Rayleigh
+    EbN0_lin = 10.^(EbN0_dB/10);
+    %ber_rayleigh_theory = 0.5*(1 - sqrt(EbN0_lin./(EbN0_lin+1)));
+    %semilogy(EbN0_dB, ber_rayleigh_theory, 'k--', 'LineWidth', 2);
+    %legend_entries{end+1} = 'Teórica Rayleigh';
+
+    grid on;
+    legend(legend_entries, 'Location', 'southwest');
+    xlabel('E_b/N_0 [dB]');
+    ylabel('BER');
+    title(sprintf('BER para QPSK con N = %d símbolos entre pilotos (CSI por pilotos)', N+1));
 end
 
 % Funciones Hamming(7,4)
